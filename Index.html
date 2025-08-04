@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ducky's AMPACT Selector</title>
+    <!-- Link to the web app manifest file -->
+    <link rel="manifest" href="manifest.json">
+    <!-- Tailwind CSS for modern, responsive styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom styles for the reset button position */
+        .input-container {
+            position: relative;
+        }
+    </style>
+</head>
+<body class="bg-orange-200 min-h-screen flex flex-col items-center justify-center p-4">
+
+    <!-- Main container for the application -->
+    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-4xl">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-2">Ducky's AMPACT Selector</h1>
+        <p class="text-center text-gray-600 mb-8">Use the selectors below to find your AMPACT.</p>
+
+        <!-- Container for the controls (dropdowns and button) -->
+        <div class="flex flex-col sm:flex-row gap-4 mb-8 justify-center items-center">
+            
+            <!-- Column selection input and dropdown -->
+            <div class="flex-1 w-full sm:w-auto">
+                <div class="input-container relative">
+                    <input type="text" id="column-search" class="w-full p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-colors mb-2 pr-8" placeholder="Filter Conductor 1..." />
+                    <button id="column-reset-btn" class="absolute right-2 top-1/2 -translate-y-1/2 text-xl font-bold text-gray-400 hover:text-gray-600 transition-colors hidden" onclick="resetFilter('column-search')">X</button>
+                </div>
+                
+                <select id="column-select" class="w-full p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-colors">
+                    <!-- Options will be populated by JavaScript -->
+                </select>
+            </div>
+
+            <!-- Row selection input and dropdown -->
+            <div class="flex-1 w-full sm:w-auto">
+                <div class="input-container relative">
+                    <input type="text" id="row-search" class="w-full p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-colors mb-2 pr-8" placeholder="Filter Conductor 2..." />
+                    <button id="row-reset-btn" class="absolute right-2 top-1/2 -translate-y-1/2 text-xl font-bold text-gray-400 hover:text-gray-600 transition-colors hidden" onclick="resetFilter('row-search')">X</button>
+                </div>
+                
+                <select id="row-select" class="w-full p-3 rounded-xl border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 transition-colors">
+                    <!-- Options will be populated by JavaScript -->
+                </select>
+            </div>
+
+            <!-- Get Value button -->
+            <button onclick="getCellValue()" class="w-full sm:w-auto mt-6 sm:mt-5 bg-orange-600 text-white font-semibold py-3 px-6 rounded-xl hover:bg-orange-700 transition-colors shadow-lg transform active:scale-95">
+                Get Ampact
+            </button>
+        </div>
+
+        <!-- Output display area -->
+        <div class="mt-8 text-center bg-gray-200 p-4 rounded-xl border border-gray-300 min-h-[5rem] flex items-center justify-center">
+            <p id="output" class="text-xl text-gray-700 font-medium">Select conductors to find AMPACT</p>
+        </div>
+
+    </div>
+
+    <script>
+        let spreadsheetData = [];
+        let allColumnOptions = [];
+        let allRowOptions = [];
+
+        async function loadData() {
+            const outputElement = document.getElementById('output');
+            outputElement.textContent = 'Data is loading...';
+
+            try {
+                const response = await fetch('data.json');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                spreadsheetData = data;
+                
+                if (spreadsheetData.length === 0) {
+                    outputElement.textContent = 'Data loaded, but the file is empty.';
+                } else {
+                    // Populate a master list of all options once
+                    const headers = Object.keys(spreadsheetData[0]);
+                    allColumnOptions = headers.filter(header => header !== 'id').map(header => ({value: header, text: header}));
+
+                    const firstDataColumnName = Object.keys(spreadsheetData[0])[0];
+                    allRowOptions = spreadsheetData.map((row, index) => ({value: index, text: row[firstDataColumnName] || `Row ${index + 1}`}));
+                    
+                    updateDropdowns();
+                    outputElement.textContent = 'Select conductors to find AMPACT';
+                }
+            } catch (error) {
+                console.error('Failed to load data:', error);
+                outputElement.textContent = `Error loading data: ${error.message}. Please make sure 'data.json' is in the same folder and has valid JSON data.`;
+            }
+        }
+        
+        // This is a single, centralized function to update both dropdowns based on the current filter inputs.
+        function updateDropdowns() {
+            const columnFilter = document.getElementById('column-search').value;
+            const rowFilter = document.getElementById('row-search').value;
+            
+            const columnSelect = document.getElementById('column-select');
+            const rowSelect = document.getElementById('row-select');
+            const columnResetBtn = document.getElementById('column-reset-btn');
+            const rowResetBtn = document.getElementById('row-reset-btn');
+
+            // Toggle visibility of the reset buttons
+            columnResetBtn.style.display = columnFilter ? 'block' : 'none';
+            rowResetBtn.style.display = rowFilter ? 'block' : 'none';
+
+            // --- Populate Column Dropdown ---
+            columnSelect.innerHTML = '';
+            if (columnFilter === '') {
+                const blankColumnOption = document.createElement('option');
+                blankColumnOption.value = "";
+                blankColumnOption.textContent = "Select a Conductor";
+                blankColumnOption.disabled = true;
+                blankColumnOption.selected = true;
+                columnSelect.appendChild(blankColumnOption);
+            }
+
+            allColumnOptions.filter(option => 
+                option.text.toLowerCase().includes(columnFilter.toLowerCase())
+            ).forEach(option => {
+                const newOption = document.createElement('option');
+                newOption.value = option.value;
+                newOption.textContent = option.text;
+                columnSelect.appendChild(newOption);
+            });
+
+            // --- Populate Row Dropdown ---
+            rowSelect.innerHTML = '';
+            if (rowFilter === '') {
+                const blankRowOption = document.createElement('option');
+                blankRowOption.value = "";
+                blankRowOption.textContent = "Select a Conductor";
+                blankRowOption.disabled = true;
+                blankRowOption.selected = true;
+                rowSelect.appendChild(blankRowOption);
+            }
+
+            allRowOptions.filter(option => 
+                option.text.toLowerCase().includes(rowFilter.toLowerCase())
+            ).forEach(option => {
+                const newOption = document.createElement('option');
+                newOption.value = option.value;
+                newOption.textContent = option.text;
+                rowSelect.appendChild(newOption);
+            });
+        }
+        
+        // This function handles the reset buttons
+        function resetFilter(inputId) {
+            const inputElement = document.getElementById(inputId);
+            inputElement.value = '';
+            updateDropdowns();
+        }
+
+        function getCellValue() {
+            const column = document.getElementById('column-select').value;
+            const rowIndex = parseInt(document.getElementById('row-select').value);
+            const outputElement = document.getElementById('output');
+
+            // Resetting output container to default state
+            const outputContainer = document.querySelector('.bg-gray-200');
+            outputContainer.classList.remove('bg-red-200', 'bg-green-200', 'bg-yellow-200');
+            outputContainer.classList.add('bg-gray-200');
+
+            if (!column || isNaN(rowIndex)) {
+                 outputElement.textContent = 'Please select both conductors.';
+                 outputElement.classList.remove('text-black');
+                 outputElement.classList.add('text-gray-700');
+                 return;
+            }
+
+            const selectedRow = spreadsheetData[rowIndex];
+
+            if (selectedRow) {
+                const value = selectedRow[column];
+                if (value !== undefined) {
+                    outputElement.textContent = value;
+                    outputElement.classList.remove('text-gray-700');
+                    outputElement.classList.add('text-black');
+                } else {
+                    outputElement.textContent = 'Error: Column not found for selected row.';
+                    outputElement.classList.remove('text-black');
+                    outputElement.classList.add('text-gray-700');
+                }
+            } else {
+                outputElement.textContent = 'Error: Row not found.';
+                outputElement.classList.remove('text-black');
+                outputElement.classList.add('text-gray-700');
+            }
+        }
+        
+        // Add a single event listener for each input that calls the centralized update function
+        document.getElementById('column-search').addEventListener('input', updateDropdowns);
+        document.getElementById('row-search').addEventListener('input', updateDropdowns);
+        
+        // Register the service worker to make the app installable
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/service-worker.js')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    }, err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+
+        window.onload = function() {
+            loadData();
+        };
+    </script>
+</body>
+</html>
+
